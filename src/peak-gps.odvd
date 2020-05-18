@@ -1,0 +1,65 @@
+/*
+ * Copyright (C) 2019  Christian Berger
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
+message opendlv.device.gps.peak.Acceleration [id = 1801] {
+    float accelerationX       [id = 1];
+    float accelerationY       [id = 2];
+    float accelerationZ       [id = 3];
+    uint8 verticalAxis        [id = 4];
+    uint8 orientation         [id = 5];
+}
+
+message opendlv.device.gps.peak.GPSStatus [id = 1802] {
+    uint8 antennaStatus       [id = 1];
+    uint8 numberOfSatellites  [id = 2];
+    uint8 navigationMethod    [id = 3];
+}
+
+message opendlv.device.gps.peak.Delusion [id = 1803] {
+    float GPS_PDOP            [id = 1];
+    float GPS_HDOP            [id = 2];
+    float GPS_VDOP            [id = 3];
+}
+
+message opendlv.device.gps.peak.IO [id = 1804] {
+    bool din1Status           [id = 1];
+    bool din2Status           [id = 2];
+    bool doutStatus           [id = 3];
+    bool SDPresent            [id = 4];
+    bool GPSPowerStatus       [id = 5];
+    uint8 deviceID            [id = 6];
+}
+
+message opendlv.device.gps.peak.UTCDateTime [id = 1805] {
+    uint8 UTCYear             [id = 1];
+    uint8 UTCMonth            [id = 2];
+    uint8 UTCDayOfMonth       [id = 3];
+    uint8 UTCHour             [id = 4];
+    uint8 UTCMinute           [id = 5];
+    uint8 UTCSecond           [id = 6];
+}
+
+message opendlv.device.gps.peak.RTCDateTime [id = 1806] {
+    uint8 RTCSec              [id = 1];
+    uint8 RTCMin              [id = 2];
+    uint8 RTCHour             [id = 3];
+    uint8 RTCDayOfWeek        [id = 4];
+    uint8 RTCDayOfMonth       [id = 5];
+    uint8 RTCMonth            [id = 6];
+    uint16 RTCYear            [id = 7];
+}
+
