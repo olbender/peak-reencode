@@ -61,7 +61,7 @@ int32_t main(int32_t argc, char **argv) {
                     opendlv::device::gps::peak::Acceleration _new{_old};
                     _new.accelerationX(_old.accelerationX()*mG_to_mps2)
                         .accelerationY(_old.accelerationY()*mG_to_mps2)
-                        .accelerationY(_old.accelerationZ()*mG_to_mps2);
+                        .accelerationZ(_old.accelerationZ()*mG_to_mps2);
 
                     if (VERBOSE) {
                         std::stringstream sstr;
@@ -81,7 +81,7 @@ int32_t main(int32_t argc, char **argv) {
                     opendlv::proxy::AccelerationReading _new{_old};
                     _new.accelerationX(_old.accelerationX()*mG_to_mps2)
                         .accelerationY(_old.accelerationY()*mG_to_mps2)
-                        .accelerationY(_old.accelerationZ()*mG_to_mps2);
+                        .accelerationZ(_old.accelerationZ()*mG_to_mps2);
 
                     if (VERBOSE) {
                         std::stringstream sstr;
@@ -101,7 +101,7 @@ int32_t main(int32_t argc, char **argv) {
                     opendlv::proxy::MagneticFieldReading _new{_old};
                     _new.magneticFieldX(_old.magneticFieldX()*mT_to_T)
                         .magneticFieldY(_old.magneticFieldY()*mT_to_T)
-                        .magneticFieldY(_old.magneticFieldZ()*mT_to_T);
+                        .magneticFieldZ(_old.magneticFieldZ()*mT_to_T);
 
                     if (VERBOSE) {
                         std::stringstream sstr;
