@@ -103,16 +103,12 @@ bool processRecFile(std::string const &inPath, std::string const &outPath,
     }
     double lengthMean = lengthSum / sampleCount;
 
-    isBeforeSiPatch = (lengthMean > 1010.0 && lengthMean < 1050);
     isFromBrokenPatch = (xChangeMax > 2500.0 || yChangeMax > 2500.0 
         || zChangeMax > 2500.0);
-    isFine = (!isBeforeSiPatch && !isFromBrokenPatch);
-
-    if (isBeforeSiPatch && isFromBrokenPatch) {
-      std::cerr << "ERROR: File '" << filename << "' classification error."
-        << std::endl;
-      return false;
+    if (!isFromBrokenPatch) {
+      isBeforeSiPatch = (lengthMean > 1000.0 && lengthMean < 1060);
     }
+    isFine = (!isBeforeSiPatch && !isFromBrokenPatch);
 
     if (verbose) {
       std::cout << filename << std::endl;
