@@ -49,6 +49,7 @@ bool processRecFile(std::string const &inPath, std::string const &outPath,
 
   bool isBeforeSiPatch = false;
   bool isFromBrokenPatch = false;
+  bool removeSwitchStateReadings = false;
   bool isFine = true;
   {
     double lengthSum{0.0};
@@ -71,6 +72,8 @@ bool processRecFile(std::string const &inPath, std::string const &outPath,
           opendlv::proxy::AccelerationReading msg = 
             cluon::extractMessage<opendlv::proxy::AccelerationReading>(
                 std::move(e));
+
+          removeSwitchStateReadings = true;
 
           double x = msg.accelerationX();
           double y = msg.accelerationY();
@@ -108,7 +111,8 @@ bool processRecFile(std::string const &inPath, std::string const &outPath,
     if (!isFromBrokenPatch) {
       isBeforeSiPatch = (lengthMean > 1000.0 && lengthMean < 1060);
     }
-    isFine = (!isBeforeSiPatch && !isFromBrokenPatch);
+    isFine = (!isBeforeSiPatch && !isFromBrokenPatch 
+        && !removeSwitchStateReadings);
 
     if (verbose) {
       std::cout << filename << std::endl;
@@ -120,6 +124,9 @@ bool processRecFile(std::string const &inPath, std::string const &outPath,
       }
       if (isFine) {
         std::cout << " .. no errors detected, copy only." << std::endl;
+      } 
+      if (removeSwitchStateReadings) {
+        std::cout << " .. will remove switch state readings." << std::endl;
       }
     }
   }
@@ -148,8 +155,12 @@ bool processRecFile(std::string const &inPath, std::string const &outPath,
     auto retVal{cluon::extractEnvelope(fin)};
     if (retVal.first) {
       cluon::data::Envelope e = retVal.second;
-
-      if (e.dataType() == opendlv::device::gps::peak::Acceleration::ID()) {
+      
+      if (e.dataType() == opendlv::proxy::SwitchStateReading::ID() 
+          && removeSwitchStateReadings) {
+        continue;
+      }
+      else if (e.dataType() == opendlv::device::gps::peak::Acceleration::ID()) {
         opendlv::device::gps::peak::Acceleration _old 
           = cluon::extractMessage<opendlv::device::gps::peak::Acceleration>(
               std::move(e));
