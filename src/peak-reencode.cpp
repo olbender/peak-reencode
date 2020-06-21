@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020  Christian Berger
+ * Copyright (C) 2020  Christian Berger, Ola Benderius
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -21,106 +21,288 @@
 
 #include <cmath>
 #include <cstdint>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <string>
 #include <thread>
 
-int32_t main(int32_t argc, char **argv) {
-    int32_t retCode{0};
-    auto commandlineArguments = cluon::getCommandlineArguments(argc, argv);
-    if ( (0 == commandlineArguments.count("in")) || (0 == commandlineArguments.count("out")) ) {
-        std::cerr << argv[0] << " reencodes an existing recording file to transcode non-SI units to SI-units for PEAK GPS." << std::endl;
-        std::cerr << "Usage:   " << argv[0] << " --in=<existing recording> --out=<output> [--verbose]" << std::endl;
-        std::cerr << "Example: " << argv[0] << " --in=myRec.rec --out=myNewRec.rec" << std::endl;
-        retCode = 1;
-    } else {
-        const bool VERBOSE{commandlineArguments.count("verbose") != 0};
-
-        std::fstream fin(commandlineArguments["in"], std::ios::in|std::ios::binary);
-        if (!fin.good()) {
-            std::cerr << "Failed to open in file." << std::endl;
-            return retCode;
-        }
-
-        std::fstream fout(commandlineArguments["out"], std::ios::out|std::ios::binary);
-        if (!fout.good()) {
-            std::cerr << "Failed to open out file." << std::endl;
-            return retCode;
-        }
-
-        const float mG_to_mps2{9.80665f/1000.f};
-        const float mT_to_T{1e-6f};
-        while (fin.good()) {
-            auto retVal{cluon::extractEnvelope(fin)};
-            if (retVal.first) {
-                cluon::data::Envelope e = retVal.second;
-
-                if (e.dataType() == opendlv::device::gps::peak::Acceleration::ID()) {
-                    opendlv::device::gps::peak::Acceleration _old = cluon::extractMessage<opendlv::device::gps::peak::Acceleration>(std::move(e));
-                    opendlv::device::gps::peak::Acceleration _new{_old};
-                    _new.accelerationX(_old.accelerationX()*mG_to_mps2)
-                        .accelerationY(_old.accelerationY()*mG_to_mps2)
-                        .accelerationZ(_old.accelerationZ()*mG_to_mps2);
-
-                    if (VERBOSE) {
-                        std::stringstream sstr;
-                        _new.accept([](uint32_t, const std::string &, const std::string &) {},
-                                    [&sstr](uint32_t, std::string &&, std::string &&n, auto v) { sstr << n << " = " << v << '\n'; },
-                                    []() {});
-                        std::cout << sstr.str() << std::endl;
-
-                    }
-
-                    cluon::ToProtoVisitor proto;
-                    _new.accept(proto);
-                    e.serializedData(proto.encodedData());
-                }
-                else if (e.dataType() == opendlv::proxy::AccelerationReading::ID()) {
-                    opendlv::proxy::AccelerationReading _old = cluon::extractMessage<opendlv::proxy::AccelerationReading>(std::move(e));
-                    opendlv::proxy::AccelerationReading _new{_old};
-                    _new.accelerationX(_old.accelerationX()*mG_to_mps2)
-                        .accelerationY(_old.accelerationY()*mG_to_mps2)
-                        .accelerationZ(_old.accelerationZ()*mG_to_mps2);
-
-                    if (VERBOSE) {
-                        std::stringstream sstr;
-                        _new.accept([](uint32_t, const std::string &, const std::string &) {},
-                                    [&sstr](uint32_t, std::string &&, std::string &&n, auto v) { sstr << n << " = " << v << '\n'; },
-                                    []() {});
-                        std::cout << sstr.str() << std::endl;
-
-                    }
-
-                    cluon::ToProtoVisitor proto;
-                    _new.accept(proto);
-                    e.serializedData(proto.encodedData());
-                }
-                else if (e.dataType() == opendlv::proxy::MagneticFieldReading::ID()) {
-                    opendlv::proxy::MagneticFieldReading _old = cluon::extractMessage<opendlv::proxy::MagneticFieldReading>(std::move(e));
-                    opendlv::proxy::MagneticFieldReading _new{_old};
-                    _new.magneticFieldX(_old.magneticFieldX()*mT_to_T)
-                        .magneticFieldY(_old.magneticFieldY()*mT_to_T)
-                        .magneticFieldZ(_old.magneticFieldZ()*mT_to_T);
-
-                    if (VERBOSE) {
-                        std::stringstream sstr;
-                        _new.accept([](uint32_t, const std::string &, const std::string &) {},
-                                    [&sstr](uint32_t, std::string &&, std::string &&n, auto v) { sstr << n << " = " << v << '\n'; },
-                                    []() {});
-                        std::cout << sstr.str() << std::endl;
-
-                    }
-
-                    cluon::ToProtoVisitor proto;
-                    _new.accept(proto);
-                    e.serializedData(proto.encodedData());
-                }
-                std::string serializedData{cluon::serializeEnvelope(std::move(e))};
-                fout.write(serializedData.data(), serializedData.size());
-                fout.flush();
-            }
-        }
+bool processRecFile(std::string const &inPath, std::string const &outPath,
+    std::string const &filename, bool const verbose)
+{
+  {
+    std::filesystem::path out = outPath + "/" + filename;
+    if (std::filesystem::exists(out)) {
+      if (verbose) {
+        std::cout << filename << std::endl;
+        std::cout << " .. exists in destination, skipping." << std::endl;
+      }
+      return true;
     }
-    return retCode;
+  }
+  
+  std::fstream fin(inPath + "/" + filename, std::ios::in|std::ios::binary);
+  if (!fin.good()) {
+    std::cerr << "Failed to open in file." << std::endl;
+    return false;
+  }
+
+  bool isBeforeSiPatch = false;
+  bool isFromBrokenPatch = false;
+  bool isFine = true;
+  {
+    double lengthSum{0.0};
+
+    double xPrev{0.0};
+    double yPrev{0.0};
+    double zPrev{0.0};
+    
+    double xChangeMax{0.0};
+    double yChangeMax{0.0};
+    double zChangeMax{0.0};
+    
+    uint64_t sampleCount{0};
+    while (fin.good()) {
+      auto retVal{cluon::extractEnvelope(fin)};
+      if (retVal.first) {
+        cluon::data::Envelope e = retVal.second;
+
+        if (e.dataType() == opendlv::proxy::AccelerationReading::ID()) {
+          opendlv::proxy::AccelerationReading msg = 
+            cluon::extractMessage<opendlv::proxy::AccelerationReading>(
+                std::move(e));
+
+          double x = msg.accelerationX();
+          double y = msg.accelerationY();
+          double z = msg.accelerationZ();
+
+          lengthSum += std::sqrt(x * x + y * y + z * z);
+
+          if (sampleCount != 0) {
+            double xChange = std::abs(x - xPrev);
+            if (xChange > xChangeMax) {
+              xChangeMax = xChange;
+            }
+            double yChange = std::abs(y - yPrev);
+            if (yChange > yChangeMax) {
+              yChangeMax = yChange;
+            }
+            double zChange = std::abs(z - zPrev);
+            if (zChange > zChangeMax) {
+              zChangeMax = zChange;
+            }
+          }
+    
+          xPrev = x;
+          yPrev = y;
+          zPrev = z;
+          
+          sampleCount++;
+        }
+      }
+    }
+    double lengthMean = lengthSum / sampleCount;
+
+    isBeforeSiPatch = (lengthMean > 1010.0 && lengthMean < 1050);
+    isFromBrokenPatch = (xChangeMax > 2500.0 || yChangeMax > 2500.0 
+        || zChangeMax > 2500.0);
+    isFine = (!isBeforeSiPatch && !isFromBrokenPatch);
+
+    if (isBeforeSiPatch && isFromBrokenPatch) {
+      std::cerr << "ERROR: File '" << filename << "' classification error."
+        << std::endl;
+      return false;
+    }
+
+    if (verbose) {
+      std::cout << filename << std::endl;
+      if (isBeforeSiPatch) {
+        std::cout << " .. is not in SI units, re-scaling." << std::endl;
+      }
+      if (isFromBrokenPatch) {
+        std::cout << " .. the broken patch was used, fixing." << std::endl;
+      }
+      if (isFine) {
+        std::cout << " .. no errors detected, copy only." << std::endl;
+      }
+    }
+  }
+
+  if (isFine) {
+    std::filesystem::path in = inPath + "/" + filename;
+    std::filesystem::path out = outPath + "/" + filename;
+    std::filesystem::copy_file(in, out);
+    fin.close();
+    return true;
+  }
+
+  fin.clear();
+  fin.seekg(0, std::ios::beg);
+
+  std::fstream fout(outPath + "/" + filename, std::ios::out|std::ios::binary);
+  if (!fout.good()) {
+    std::cerr << "Failed to open out file." << std::endl;
+    return false;
+  }
+
+  float const mG_to_mps2{9.80665f/1000.f};
+  float const mT_to_T{1e-6f};
+
+  while (fin.good()) {
+    auto retVal{cluon::extractEnvelope(fin)};
+    if (retVal.first) {
+      cluon::data::Envelope e = retVal.second;
+
+      if (e.dataType() == opendlv::device::gps::peak::Acceleration::ID()) {
+        opendlv::device::gps::peak::Acceleration _old 
+          = cluon::extractMessage<opendlv::device::gps::peak::Acceleration>(
+              std::move(e));
+
+        opendlv::device::gps::peak::Acceleration _new{_old};
+
+        if (isBeforeSiPatch) {
+          _new.accelerationX(_old.accelerationX()*mG_to_mps2)
+            .accelerationY(_old.accelerationY()*mG_to_mps2)
+            .accelerationZ(_old.accelerationZ()*mG_to_mps2);
+        }
+
+        if (isFromBrokenPatch) {
+          float x = _old.accelerationX();
+          float y = _old.accelerationY();
+          float z = _old.accelerationZ();
+          if (x > 1250.0f) {
+            x -= 2512.874f;
+          }
+          if (y > 1250.0f) {
+            y -= 2512.874f;
+          }
+          if (z > 1250.0f) {
+            z -= 2512.874f;
+          }
+          _new.accelerationX(x)
+            .accelerationY(y)
+            .accelerationZ(z);
+        }
+
+        cluon::ToProtoVisitor proto;
+        _new.accept(proto);
+        e.serializedData(proto.encodedData());
+      }
+      else if (e.dataType() == opendlv::proxy::AccelerationReading::ID()) {
+        opendlv::proxy::AccelerationReading _old = 
+          cluon::extractMessage<opendlv::proxy::AccelerationReading>(
+              std::move(e));
+        
+        opendlv::proxy::AccelerationReading _new{_old};
+
+        if (isBeforeSiPatch) {
+          _new.accelerationX(_old.accelerationX()*mG_to_mps2)
+            .accelerationY(_old.accelerationY()*mG_to_mps2)
+            .accelerationZ(_old.accelerationZ()*mG_to_mps2);
+        }
+        
+        if (isFromBrokenPatch) {
+          float x = _old.accelerationX();
+          float y = _old.accelerationY();
+          float z = _old.accelerationZ();
+          if (x > 1250.0f) {
+            x -= 2512.874f;
+          }
+          if (y > 1250.0f) {
+            y -= 2512.874f;
+          }
+          if (z > 1250.0f) {
+            z -= 2512.874f;
+          }
+          _new.accelerationX(x)
+            .accelerationY(y)
+            .accelerationZ(z);
+        }
+
+        cluon::ToProtoVisitor proto;
+        _new.accept(proto);
+        e.serializedData(proto.encodedData());
+      }
+      else if (e.dataType() == opendlv::proxy::MagneticFieldReading::ID()) {
+        opendlv::proxy::MagneticFieldReading _old 
+          = cluon::extractMessage<opendlv::proxy::MagneticFieldReading>(
+              std::move(e));
+        
+        opendlv::proxy::MagneticFieldReading _new{_old};
+
+        if (isBeforeSiPatch) {
+          _new.magneticFieldX(_old.magneticFieldX()*mT_to_T)
+            .magneticFieldY(_old.magneticFieldY()*mT_to_T)
+            .magneticFieldZ(_old.magneticFieldZ()*mT_to_T);
+        }
+        
+        if (isFromBrokenPatch) {
+          float x = _old.magneticFieldX();
+          float y = _old.magneticFieldY();
+          float z = _old.magneticFieldZ();
+          if (x > 0.01f) {
+            x -= 0.0196605f;
+          }
+          if (y > 0.01f) {
+            y -= 0.0196605f;
+          }
+          if (z > 0.01f) {
+            z -= 0.0196605f;
+          }
+          _new.magneticFieldX(x)
+            .magneticFieldY(y)
+            .magneticFieldZ(z);
+        }
+
+        cluon::ToProtoVisitor proto;
+        _new.accept(proto);
+        e.serializedData(proto.encodedData());
+      }
+      std::string serializedData{cluon::serializeEnvelope(std::move(e))};
+      fout.write(serializedData.data(), serializedData.size());
+      fout.flush();
+    }
+  }
+
+  fin.close();
+  fout.close();
+  return true;
+}
+
+
+int32_t main(int32_t argc, char **argv) {
+  int32_t retCode{0};
+  auto commandlineArguments = cluon::getCommandlineArguments(argc, argv);
+  if ( (0 == commandlineArguments.count("in")) 
+      || (0 == commandlineArguments.count("out")) ) {
+    std::cerr << argv[0] << " reencodes an existing recording file to "
+      << "transcode non-SI units to SI-units for PEAK GPS." << std::endl;
+    std::cerr << "Usage:   " << argv[0] << " --in=<existing recording> "
+      << "--out=<output> [--verbose]" << std::endl;
+    std::cerr << "Example: " << argv[0] << " --in=myRec.rec --out=myNewRec.rec" 
+      << std::endl;
+    retCode = 1;
+  } else {
+    bool const verbose{commandlineArguments.count("verbose") != 0};
+
+    std::filesystem::path inPath = commandlineArguments["in"] + "/";
+    std::filesystem::path outPath = commandlineArguments["out"] + "/";
+
+    if (inPath == outPath) {
+      std::cerr << "ERROR: Cannot re-save files to source directory" 
+        << std::endl;
+      return -1;
+    }
+
+    for (auto const &entry : 
+        std::filesystem::recursive_directory_iterator(inPath)) {
+      std::string filename = entry.path().filename().string();
+      bool ok = processRecFile(inPath.string(), outPath.string(), filename, 
+          verbose);
+      if (!ok) {
+        return -1;
+      }
+    }
+  }
+  return retCode;
 }
