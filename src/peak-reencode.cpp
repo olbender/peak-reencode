@@ -294,13 +294,24 @@ int32_t main(int32_t argc, char **argv) {
       return -1;
     }
 
+    std::string inPathAbs = std::filesystem::absolute(inPath).string();
+    std::string outPathAbs = std::filesystem::absolute(outPath).string();
+
     for (auto const &entry : 
         std::filesystem::recursive_directory_iterator(inPath)) {
-      std::string filename = entry.path().filename().string();
-      bool ok = processRecFile(inPath.string(), outPath.string(), filename, 
-          verbose);
-      if (!ok) {
-        return -1;
+
+      if (entry.is_regular_file() && entry.path().extension() == ".rec") {
+        std::string filename = entry.path().string();
+        std::string relativeFilename = filename.substr(inPathAbs.length());
+
+        std::filesystem::path out = outPath.string() + relativeFilename;
+        std::filesystem::create_directories(out.parent_path());
+
+        bool ok = processRecFile(inPathAbs, outPathAbs, relativeFilename, verbose);
+        if (!ok) {
+          return -1;
+        }
+
       }
     }
   }
