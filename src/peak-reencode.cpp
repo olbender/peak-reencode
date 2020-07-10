@@ -21,6 +21,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -147,12 +148,49 @@ bool processRecFile(std::string const &inPath, std::string const &outPath,
     std::cerr << "Failed to open out file." << std::endl;
     return false;
   }
+  if (!fin.good()) {
+    std::cerr << "Failed to open in file." << std::endl;
+    return false;
+  }
+  fin.close();
 
+  // Conversion constants.
   float const mG_to_mps2{9.80665f/1000.f};
   float const mT_to_T{1e-6f};
 
-  while (fin.good()) {
-    auto retVal{cluon::extractEnvelope(fin)};
+  // We need the Envelopes in strictly ascending temporal order, so
+  // we use cluon::Player to sort the Envelopes by sampleTimePoint.
+  const bool AUTOREWIND{false};
+  const bool THREADING{false};
+  cluon::Player player(inPath + "/" + filename, AUTOREWIND, THREADING);
+
+  // temp buffer to remove duplicated values
+  bool foundAngularVelocityReading{false};
+  double prevAngularVelocityX{0};
+  double prevAngularVelocityY{0};
+  double prevAngularVelocityZ{0};
+  uint32_t skippedAngularVelocityReadingsCounter{0};
+
+  bool foundMagneticFieldReading{false};
+  double prevMagneticFieldX{0};
+  double prevMagneticFieldY{0};
+  double prevMagneticFieldZ{0};
+  uint32_t skippedMagneticFieldReadingsCounter{0};
+
+  bool foundAltitudeReading{false};
+  double prevAltitude{0};
+  uint32_t skippedAltitudeReadingsCounter{0};
+
+  bool foundGroundSpeedReading{false};
+  double prevGroundSpeed{0};
+  uint32_t skippedGroundSpeedReadingsCounter{0};
+
+  bool foundGeodeticHeadingReading{false};
+  double prevGeodeticHeading{0};
+  uint32_t skippedGeodeticHeadingReadingsCounter{0};
+
+  while (player.hasMoreData()) {
+    auto retVal{player.getNextEnvelopeToBeReplayed()};
     if (retVal.first) {
       cluon::data::Envelope e = retVal.second;
       
@@ -234,6 +272,25 @@ bool processRecFile(std::string const &inPath, std::string const &outPath,
         opendlv::proxy::MagneticFieldReading _old 
           = cluon::extractMessage<opendlv::proxy::MagneticFieldReading>(
               std::move(e));
+
+        // Do we need to skip this due to a duplicated value?
+        {
+          double x = _old.magneticFieldX();
+          double y = _old.magneticFieldY();
+          double z = _old.magneticFieldZ();
+          if (foundMagneticFieldReading) {
+            if (::memcmp(&x, &prevMagneticFieldX, 8) == 0
+                || ::memcmp(&y, &prevMagneticFieldY, 8) == 0
+                || ::memcmp(&z, &prevMagneticFieldZ, 8) == 0) {
+              skippedMagneticFieldReadingsCounter++;
+              continue;
+            }
+          }
+          foundMagneticFieldReading = true;
+          prevMagneticFieldX = x;
+          prevMagneticFieldY = y;
+          prevMagneticFieldZ = z;
+        }
         
         opendlv::proxy::MagneticFieldReading _new{_old};
 
@@ -265,13 +322,113 @@ bool processRecFile(std::string const &inPath, std::string const &outPath,
         _new.accept(proto);
         e.serializedData(proto.encodedData());
       }
+      else if (e.dataType() == opendlv::proxy::AngularVelocityReading::ID()) {
+        opendlv::proxy::AngularVelocityReading _old 
+          = cluon::extractMessage<opendlv::proxy::AngularVelocityReading>(
+              std::move(e));
+
+        // Do we need to skip this due to a duplicated value?
+        {
+          double x = _old.angularVelocityX();
+          double y = _old.angularVelocityY();
+          double z = _old.angularVelocityZ();
+          if (foundAngularVelocityReading) {
+            if (::memcmp(&x, &prevAngularVelocityX, 8) == 0
+                || ::memcmp(&y, &prevAngularVelocityY, 8) == 0
+                || ::memcmp(&z, &prevAngularVelocityZ, 8) == 0) {
+              skippedAngularVelocityReadingsCounter++;
+              continue;
+            }
+          }
+          foundAngularVelocityReading = true;
+          prevAngularVelocityX = x;
+          prevAngularVelocityY = y;
+          prevAngularVelocityZ = z;
+        }
+        
+        opendlv::proxy::AngularVelocityReading _new{_old};
+
+        cluon::ToProtoVisitor proto;
+        _new.accept(proto);
+        e.serializedData(proto.encodedData());
+      }
+      if (e.dataType() == opendlv::proxy::AltitudeReading::ID()) {
+        auto msg = cluon::extractMessage<opendlv::proxy::AltitudeReading>(std::move(e));
+        double x = msg.altitude();
+        if (foundAltitudeReading) {
+          if (prevAltitude - x >  0.98 * std::abs(prevAltitude)) {
+            skippedAltitudeReadingsCounter++;
+            continue;
+          }
+          if (::memcmp(&x, &prevAltitude, 8) == 0) {
+            skippedAltitudeReadingsCounter++;
+            continue;
+          }
+        }
+        foundAltitudeReading = true;
+        prevAltitude = x;
+
+        cluon::ToProtoVisitor proto;
+        msg.accept(proto);
+        e.serializedData(proto.encodedData());
+      }
+      if (e.dataType() == opendlv::proxy::GroundSpeedReading::ID()) {
+        auto msg = cluon::extractMessage<opendlv::proxy::GroundSpeedReading>(std::move(e));
+        double x = msg.groundSpeed();
+        if (foundGroundSpeedReading) {
+          if (prevGroundSpeed - x >  0.98 * std::abs(prevGroundSpeed)) {
+            skippedGroundSpeedReadingsCounter++;
+            continue;
+          }
+          if (::memcmp(&x, &prevGroundSpeed, 8) == 0) {
+            skippedGroundSpeedReadingsCounter++;
+            continue;
+          }
+        }
+        foundGroundSpeedReading = true;
+        prevGroundSpeed = x;
+
+        cluon::ToProtoVisitor proto;
+        msg.accept(proto);
+        e.serializedData(proto.encodedData());
+      }
+      if (e.dataType() == opendlv::proxy::GeodeticHeadingReading::ID()) {
+        auto msg = cluon::extractMessage<opendlv::proxy::GeodeticHeadingReading>(std::move(e));
+        double x = msg.northHeading();
+        if (std::abs(x) < 0.001) {
+          continue;
+        }
+        if (foundGeodeticHeadingReading) {
+          if (prevGeodeticHeading - x >  0.98 * std::abs(prevGeodeticHeading)) {
+            skippedGeodeticHeadingReadingsCounter++;
+            continue;
+          }
+          if (::memcmp(&x, &prevGeodeticHeading, 8) == 0) {
+            skippedGeodeticHeadingReadingsCounter++;
+            continue;
+          }
+        }
+        foundGeodeticHeadingReading = true;
+        prevGeodeticHeading = x;
+
+        cluon::ToProtoVisitor proto;
+        msg.accept(proto);
+        e.serializedData(proto.encodedData());
+      }
+
       std::string serializedData{cluon::serializeEnvelope(std::move(e))};
       fout.write(serializedData.data(), serializedData.size());
       fout.flush();
     }
   }
+  if (verbose) {
+    std::cout << "..skipped " << skippedMagneticFieldReadingsCounter << " duplicated MagneticFieldReadings" << std::endl;
+    std::cout << "..skipped " << skippedAngularVelocityReadingsCounter << " duplicated AngularVelocityReadings" << std::endl;
+    std::cout << "..skipped " << skippedAltitudeReadingsCounter << " duplicated or invalid AltitudeReadings" << std::endl;
+    std::cout << "..skipped " << skippedGroundSpeedReadingsCounter << " duplicated or invalid GroundSpeedReadings" << std::endl;
+    std::cout << "..skipped " << skippedGeodeticHeadingReadingsCounter << " duplicated or invalid GeodeticHeadingReadings" << std::endl;
+  }
 
-  fin.close();
   fout.close();
   return true;
 }
@@ -284,9 +441,9 @@ int32_t main(int32_t argc, char **argv) {
       || (0 == commandlineArguments.count("out")) ) {
     std::cerr << argv[0] << " reencodes an existing recording file to "
       << "transcode non-SI units to SI-units for PEAK GPS." << std::endl;
-    std::cerr << "Usage:   " << argv[0] << " --in=<existing recording> "
-      << "--out=<output> [--verbose]" << std::endl;
-    std::cerr << "Example: " << argv[0] << " --in=myRec.rec --out=myNewRec.rec" 
+    std::cerr << "Usage:   " << argv[0] << " --in=<existing folder with recordings> "
+      << "--out=<output folder> [--verbose]" << std::endl;
+    std::cerr << "Example: " << argv[0] << " --in=in-rec --out=out-rec" 
       << std::endl;
     retCode = 1;
   } else {
