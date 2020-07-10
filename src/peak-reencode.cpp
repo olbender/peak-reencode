@@ -21,6 +21,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -163,6 +164,19 @@ bool processRecFile(std::string const &inPath, std::string const &outPath,
   const bool THREADING{false};
   cluon::Player player(inPath + "/" + filename, AUTOREWIND, THREADING);
 
+  // temp buffer to remove duplicated values
+  bool foundAngularVelocityReading{false};
+  double prevAngularVelocityX{0};
+  double prevAngularVelocityY{0};
+  double prevAngularVelocityZ{0};
+  uint32_t skippedAngularVelocityReadingsCounter{0};
+
+  bool foundMagneticFieldReading{false};
+  double prevMagneticFieldX{0};
+  double prevMagneticFieldY{0};
+  double prevMagneticFieldZ{0};
+  uint32_t skippedMagneticFieldReadingsCounter{0};
+
   while (player.hasMoreData()) {
     auto retVal{player.getNextEnvelopeToBeReplayed()};
     if (retVal.first) {
@@ -246,6 +260,25 @@ bool processRecFile(std::string const &inPath, std::string const &outPath,
         opendlv::proxy::MagneticFieldReading _old 
           = cluon::extractMessage<opendlv::proxy::MagneticFieldReading>(
               std::move(e));
+
+        // Do we need to skip this due to a duplicated value?
+        {
+          double x = _old.magneticFieldX();
+          double y = _old.magneticFieldY();
+          double z = _old.magneticFieldZ();
+          if (foundMagneticFieldReading) {
+            if (::memcmp(&x, &prevMagneticFieldX, 8) == 0
+                || ::memcmp(&y, &prevMagneticFieldY, 8) == 0
+                || ::memcmp(&z, &prevMagneticFieldZ, 8) == 0) {
+              skippedMagneticFieldReadingsCounter++;
+              continue;
+            }
+          }
+          foundMagneticFieldReading = true;
+          prevMagneticFieldX = x;
+          prevMagneticFieldY = y;
+          prevMagneticFieldZ = z;
+        }
         
         opendlv::proxy::MagneticFieldReading _new{_old};
 
@@ -277,10 +310,44 @@ bool processRecFile(std::string const &inPath, std::string const &outPath,
         _new.accept(proto);
         e.serializedData(proto.encodedData());
       }
+      else if (e.dataType() == opendlv::proxy::AngularVelocityReading::ID()) {
+        opendlv::proxy::AngularVelocityReading _old 
+          = cluon::extractMessage<opendlv::proxy::AngularVelocityReading>(
+              std::move(e));
+
+        // Do we need to skip this due to a duplicated value?
+        {
+          double x = _old.angularVelocityX();
+          double y = _old.angularVelocityY();
+          double z = _old.angularVelocityZ();
+          if (foundAngularVelocityReading) {
+            if (::memcmp(&x, &prevAngularVelocityX, 8) == 0
+                || ::memcmp(&y, &prevAngularVelocityY, 8) == 0
+                || ::memcmp(&z, &prevAngularVelocityZ, 8) == 0) {
+              skippedAngularVelocityReadingsCounter++;
+              continue;
+            }
+          }
+          foundAngularVelocityReading = true;
+          prevAngularVelocityX = x;
+          prevAngularVelocityY = y;
+          prevAngularVelocityZ = z;
+        }
+        
+        opendlv::proxy::AngularVelocityReading _new{_old};
+
+        cluon::ToProtoVisitor proto;
+        _new.accept(proto);
+        e.serializedData(proto.encodedData());
+      }
       std::string serializedData{cluon::serializeEnvelope(std::move(e))};
       fout.write(serializedData.data(), serializedData.size());
       fout.flush();
     }
+  }
+  if (verbose) {
+    std::cout << "..skipped " << skippedMagneticFieldReadingsCounter << " duplicated MagneticFieldReadings" << std::endl;
+    std::cout << "..skipped " << skippedAngularVelocityReadingsCounter << " duplicated AngularVelocityReadings" << std::endl;
   }
 
   fout.close();
