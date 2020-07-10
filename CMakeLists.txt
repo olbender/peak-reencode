@@ -1,4 +1,4 @@
-# Copyright (C) 2020  Christian Berger
+# Copyright (C) 2020 Ola Benderius
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -17,95 +17,73 @@ cmake_minimum_required(VERSION 3.2)
 
 project(peak-reencode)
 
-################################################################################
-# Defining the relevant versions of OpenDLV Standard Message Set and libcluon.
 set(OPENDLV_STANDARD_MESSAGE_SET opendlv-standard-message-set-v0.9.7.odvd)
-set(CLUON_COMPLETE cluon-complete-v0.0.127.hpp)
+set(CLUON_COMPLETE cluon-complete-v0.0.132.hpp)
 
-################################################################################
-# Set the search path for .cmake files.
-set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}" ${CMAKE_MODULE_PATH})
-
-################################################################################
-# This project requires C++14 or newer.
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-# Build a static binary.
-# Add further warning levels.
+set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -s")
+set(CMAKE_EXE_LINKER_FLAGS "-static-libgcc -static-libstdc++")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} \
-    -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk \
+    -D_XOPEN_SOURCE=700 \
     -D_FORTIFY_SOURCE=2 \
-    -Os \
+    -O2 \
     -fstack-protector \
     -fomit-frame-pointer \
-    -ffunction-sections -fdata-sections \
     -pipe \
+    -pedantic -pedantic-errors \
+    -Werror \
     -Weffc++ \
-    -Wall -Wextra -Wshadow -Wdeprecated \
-    -Wdiv-by-zero -Wfloat-equal -Wfloat-conversion -Wsign-compare -Wpointer-arith \
-    -Wuninitialized -Wunreachable-code \
-    -Wunused -Wunused-function -Wunused-label -Wunused-parameter -Wunused-but-set-parameter -Wunused-but-set-variable \
-    -Wunused-value -Wunused-variable -Wunused-result \
-    -Wmissing-field-initializers -Wmissing-format-attribute -Wmissing-include-dirs -Wmissing-noreturn")
+    -Wall -Wextra -Wshadow -Wdeprecated -Wdiv-by-zero -Wfloat-equal \
+    -Wfloat-conversion -Wsign-compare -Wpointer-arith \
+    -Wuninitialized -Wunreachable-code -Wunused -Wunused-function \
+    -Wunused-label -Wunused-parameter -Wunused-but-set-parameter \
+    -Wunused-but-set-variable -Wunused-value -Wunused-variable -Wunused-result \
+    -Wmissing-field-initializers -Wmissing-format-attribute \
+    -Wmissing-include-dirs -Wmissing-noreturn")
+set(THREADS_PREFER_PTHREAD_FLAG ON)
 
-################################################################################
-# Create symbolic link to cluon-complete.hpp.
-add_custom_command(OUTPUT ${CMAKE_BINARY_DIR}/cluon-complete.hpp
-    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-    COMMAND ${CMAKE_COMMAND} -E create_symlink ${CMAKE_CURRENT_SOURCE_DIR}/src/${CLUON_COMPLETE} ${CMAKE_BINARY_DIR}/cluon-complete.hpp
-    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/${CLUON_COMPLETE})
-
-# Add current build directory as include directory as it contains generated files.
-include_directories(SYSTEM ${CMAKE_BINARY_DIR})
-
-################################################################################
-# Extract cluon-msc from cluon-complete.hpp.
 add_custom_command(OUTPUT ${CMAKE_BINARY_DIR}/cluon-msc
-    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-    COMMAND ${CMAKE_COMMAND} -E create_symlink ${CMAKE_CURRENT_SOURCE_DIR}/src/${CLUON_COMPLETE} ${CMAKE_BINARY_DIR}/cluon-complete.hpp
-    COMMAND ${CMAKE_COMMAND} -E create_symlink ${CMAKE_BINARY_DIR}/cluon-complete.hpp ${CMAKE_BINARY_DIR}/cluon-complete.cpp
-    COMMAND ${CMAKE_CXX_COMPILER} -o ${CMAKE_BINARY_DIR}/cluon-msc ${CMAKE_BINARY_DIR}/cluon-complete.cpp -std=c++14 -pthread -D HAVE_CLUON_MSC -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk
-    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/${CLUON_COMPLETE})
+  WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+  COMMAND ${CMAKE_COMMAND} -E create_symlink 
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/${CLUON_COMPLETE} 
+  ${CMAKE_BINARY_DIR}/cluon-complete.hpp
+  COMMAND ${CMAKE_COMMAND} -E create_symlink 
+  ${CMAKE_BINARY_DIR}/cluon-complete.hpp 
+  ${CMAKE_BINARY_DIR}/cluon-complete.cpp
+  COMMAND ${CMAKE_CXX_COMPILER} -o ${CMAKE_BINARY_DIR}/cluon-msc 
+  ${CMAKE_BINARY_DIR}/cluon-complete.cpp -std=c++14 -pthread -D HAVE_CLUON_MSC
+  DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/${CLUON_COMPLETE})
 
-################################################################################
-# Generate peak-gps.hpp.
-add_custom_command(OUTPUT ${CMAKE_BINARY_DIR}/peak-gps.hpp
-    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-    COMMAND ${CMAKE_BINARY_DIR}/cluon-msc --cpp --out=${CMAKE_BINARY_DIR}/peak-gps.hpp ${CMAKE_CURRENT_SOURCE_DIR}/src/peak-gps.odvd
-    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/peak-gps.odvd ${CMAKE_BINARY_DIR}/cluon-msc)
-
-################################################################################
-# Generate opendlv-standard-message-set.hpp from ${OPENDLV_STANDARD_MESSAGE_SET} file.
 add_custom_command(OUTPUT ${CMAKE_BINARY_DIR}/opendlv-standard-message-set.hpp
-    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-    COMMAND ${CMAKE_BINARY_DIR}/cluon-msc --cpp --out=${CMAKE_BINARY_DIR}/opendlv-standard-message-set.hpp ${CMAKE_CURRENT_SOURCE_DIR}/src/${OPENDLV_STANDARD_MESSAGE_SET}
-    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/${OPENDLV_STANDARD_MESSAGE_SET} ${CMAKE_BINARY_DIR}/cluon-msc)
+  WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+  COMMAND ${CMAKE_BINARY_DIR}/cluon-msc --cpp 
+  --out=${CMAKE_BINARY_DIR}/opendlv-standard-message-set.hpp 
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/${OPENDLV_STANDARD_MESSAGE_SET}
+  DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/${OPENDLV_STANDARD_MESSAGE_SET} 
+  ${CMAKE_BINARY_DIR}/cluon-msc)
 
-# Add current build directory as include directory as it contains generated files.
+add_custom_command(OUTPUT ${CMAKE_BINARY_DIR}/peak-gps.hpp
+  WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+  COMMAND ${CMAKE_BINARY_DIR}/cluon-msc --cpp 
+  --out=${CMAKE_BINARY_DIR}/peak-gps.hpp 
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/peak-gps.odvd
+  DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/peak-gps.odvd 
+  ${CMAKE_BINARY_DIR}/cluon-msc)
+
 include_directories(SYSTEM ${CMAKE_BINARY_DIR})
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src)
 
-################################################################################
-# Threads are necessary for linking the resulting binaries as UDPReceiver is running in parallel.
+find_package(Threads REQUIRED)
 
-if(UNIX)
-    if(NOT "${CMAKE_SYSTEM_NAME}" STREQUAL "Darwin")
-        set(THREADS_PREFER_PTHREAD_FLAG ON)
-        find_package(Threads REQUIRED)
-        set(LIBRARIES Threads::Threads)
-        find_package(LibRT REQUIRED)
-        set(LIBRARIES ${LIBRARIES} ${LIBRT_LIBRARIES})
-        include_directories(SYSTEM ${LIBRT_INCLUDE_DIR})
-    endif()
-endif()
+set(LIBRARIES Threads::Threads)
 
-################################################################################
-# Create executable.
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src)
-add_executable(${PROJECT_NAME} ${CMAKE_CURRENT_SOURCE_DIR}/src/${PROJECT_NAME}.cpp ${CMAKE_BINARY_DIR}/cluon-complete.hpp ${CMAKE_BINARY_DIR}/opendlv-standard-message-set.hpp ${CMAKE_BINARY_DIR}/peak-gps.hpp)
+add_executable(${PROJECT_NAME} 
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/${PROJECT_NAME}.cpp
+  ${CMAKE_BINARY_DIR}/opendlv-standard-message-set.hpp 
+  ${CMAKE_BINARY_DIR}/peak-gps.hpp)
+
 target_link_libraries(${PROJECT_NAME} ${LIBRARIES})
 
-################################################################################
-# Install executable.
 install(TARGETS ${PROJECT_NAME} DESTINATION bin COMPONENT ${PROJECT_NAME})
