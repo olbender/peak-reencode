@@ -181,6 +181,10 @@ bool processRecFile(std::string const &inPath, std::string const &outPath,
   double prevAltitude{0};
   uint32_t skippedAltitudeReadingsCounter{0};
 
+  bool foundGroundSpeedReading{false};
+  double prevGroundSpeed{0};
+  uint32_t skippedGroundSpeedReadingsCounter{0};
+
   while (player.hasMoreData()) {
     auto retVal{player.getNextEnvelopeToBeReplayed()};
     if (retVal.first) {
@@ -364,6 +368,27 @@ bool processRecFile(std::string const &inPath, std::string const &outPath,
         msg.accept(proto);
         e.serializedData(proto.encodedData());
       }
+      if (e.dataType() == opendlv::proxy::GroundSpeedReading::ID()) {
+        auto msg = cluon::extractMessage<opendlv::proxy::GroundSpeedReading>(std::move(e));
+        double x = msg.groundSpeed();
+        if (foundGroundSpeedReading) {
+          if (prevGroundSpeed - x >  0.98 * std::abs(prevGroundSpeed)) {
+            skippedGroundSpeedReadingsCounter++;
+            continue;
+          }
+          if (::memcmp(&x, &prevGroundSpeed, 8) == 0) {
+            skippedGroundSpeedReadingsCounter++;
+            continue;
+          }
+        }
+        foundGroundSpeedReading = true;
+        prevGroundSpeed = x;
+
+        cluon::ToProtoVisitor proto;
+        msg.accept(proto);
+        e.serializedData(proto.encodedData());
+      }
+
 
       std::string serializedData{cluon::serializeEnvelope(std::move(e))};
       fout.write(serializedData.data(), serializedData.size());
@@ -374,6 +399,7 @@ bool processRecFile(std::string const &inPath, std::string const &outPath,
     std::cout << "..skipped " << skippedMagneticFieldReadingsCounter << " duplicated MagneticFieldReadings" << std::endl;
     std::cout << "..skipped " << skippedAngularVelocityReadingsCounter << " duplicated AngularVelocityReadings" << std::endl;
     std::cout << "..skipped " << skippedAltitudeReadingsCounter << " duplicated or invalid AltitudeReadings" << std::endl;
+    std::cout << "..skipped " << skippedGroundSpeedReadingsCounter << " duplicated or invalid GroundSpeedReadings" << std::endl;
   }
 
   fout.close();
