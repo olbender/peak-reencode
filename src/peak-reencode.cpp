@@ -177,6 +177,10 @@ bool processRecFile(std::string const &inPath, std::string const &outPath,
   double prevMagneticFieldZ{0};
   uint32_t skippedMagneticFieldReadingsCounter{0};
 
+  bool foundAltitudeReading{false};
+  double prevAltitude{0};
+  uint32_t skippedAltitudeReadingsCounter{0};
+
   while (player.hasMoreData()) {
     auto retVal{player.getNextEnvelopeToBeReplayed()};
     if (retVal.first) {
@@ -340,6 +344,27 @@ bool processRecFile(std::string const &inPath, std::string const &outPath,
         _new.accept(proto);
         e.serializedData(proto.encodedData());
       }
+      if (e.dataType() == opendlv::proxy::AltitudeReading::ID()) {
+        auto msg = cluon::extractMessage<opendlv::proxy::AltitudeReading>(std::move(e));
+        double x = msg.altitude();
+        if (foundAltitudeReading) {
+          if (prevAltitude - x >  0.98 * std::abs(prevAltitude)) {
+            skippedAltitudeReadingsCounter++;
+            continue;
+          }
+          if (::memcmp(&x, &prevAltitude, 8) == 0) {
+            skippedAltitudeReadingsCounter++;
+            continue;
+          }
+        }
+        foundAltitudeReading = true;
+        prevAltitude = x;
+
+        cluon::ToProtoVisitor proto;
+        msg.accept(proto);
+        e.serializedData(proto.encodedData());
+      }
+
       std::string serializedData{cluon::serializeEnvelope(std::move(e))};
       fout.write(serializedData.data(), serializedData.size());
       fout.flush();
@@ -348,6 +373,7 @@ bool processRecFile(std::string const &inPath, std::string const &outPath,
   if (verbose) {
     std::cout << "..skipped " << skippedMagneticFieldReadingsCounter << " duplicated MagneticFieldReadings" << std::endl;
     std::cout << "..skipped " << skippedAngularVelocityReadingsCounter << " duplicated AngularVelocityReadings" << std::endl;
+    std::cout << "..skipped " << skippedAltitudeReadingsCounter << " duplicated or invalid AltitudeReadings" << std::endl;
   }
 
   fout.close();
