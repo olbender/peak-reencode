@@ -185,6 +185,10 @@ bool processRecFile(std::string const &inPath, std::string const &outPath,
   double prevGroundSpeed{0};
   uint32_t skippedGroundSpeedReadingsCounter{0};
 
+  bool foundGeodeticHeadingReading{false};
+  double prevGeodeticHeading{0};
+  uint32_t skippedGeodeticHeadingReadingsCounter{0};
+
   while (player.hasMoreData()) {
     auto retVal{player.getNextEnvelopeToBeReplayed()};
     if (retVal.first) {
@@ -388,7 +392,29 @@ bool processRecFile(std::string const &inPath, std::string const &outPath,
         msg.accept(proto);
         e.serializedData(proto.encodedData());
       }
+      if (e.dataType() == opendlv::proxy::GeodeticHeadingReading::ID()) {
+        auto msg = cluon::extractMessage<opendlv::proxy::GeodeticHeadingReading>(std::move(e));
+        double x = msg.northHeading();
+        if (std::abs(x) < 0.001) {
+          continue;
+        }
+        if (foundGeodeticHeadingReading) {
+          if (prevGeodeticHeading - x >  0.98 * std::abs(prevGeodeticHeading)) {
+            skippedGeodeticHeadingReadingsCounter++;
+            continue;
+          }
+          if (::memcmp(&x, &prevGeodeticHeading, 8) == 0) {
+            skippedGeodeticHeadingReadingsCounter++;
+            continue;
+          }
+        }
+        foundGeodeticHeadingReading = true;
+        prevGeodeticHeading = x;
 
+        cluon::ToProtoVisitor proto;
+        msg.accept(proto);
+        e.serializedData(proto.encodedData());
+      }
 
       std::string serializedData{cluon::serializeEnvelope(std::move(e))};
       fout.write(serializedData.data(), serializedData.size());
@@ -400,6 +426,7 @@ bool processRecFile(std::string const &inPath, std::string const &outPath,
     std::cout << "..skipped " << skippedAngularVelocityReadingsCounter << " duplicated AngularVelocityReadings" << std::endl;
     std::cout << "..skipped " << skippedAltitudeReadingsCounter << " duplicated or invalid AltitudeReadings" << std::endl;
     std::cout << "..skipped " << skippedGroundSpeedReadingsCounter << " duplicated or invalid GroundSpeedReadings" << std::endl;
+    std::cout << "..skipped " << skippedGeodeticHeadingReadingsCounter << " duplicated or invalid GeodeticHeadingReadings" << std::endl;
   }
 
   fout.close();
