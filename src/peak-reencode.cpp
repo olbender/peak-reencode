@@ -147,12 +147,24 @@ bool processRecFile(std::string const &inPath, std::string const &outPath,
     std::cerr << "Failed to open out file." << std::endl;
     return false;
   }
+  if (!fin.good()) {
+    std::cerr << "Failed to open in file." << std::endl;
+    return false;
+  }
+  fin.close();
 
+  // Conversion constants.
   float const mG_to_mps2{9.80665f/1000.f};
   float const mT_to_T{1e-6f};
 
-  while (fin.good()) {
-    auto retVal{cluon::extractEnvelope(fin)};
+  // We need the Envelopes in strictly ascending temporal order, so
+  // we use cluon::Player to sort the Envelopes by sampleTimePoint.
+  const bool AUTOREWIND{false};
+  const bool THREADING{false};
+  cluon::Player player(inPath + "/" + filename, AUTOREWIND, THREADING);
+
+  while (player.hasMoreData()) {
+    auto retVal{player.getNextEnvelopeToBeReplayed()};
     if (retVal.first) {
       cluon::data::Envelope e = retVal.second;
       
@@ -271,7 +283,6 @@ bool processRecFile(std::string const &inPath, std::string const &outPath,
     }
   }
 
-  fin.close();
   fout.close();
   return true;
 }
@@ -284,9 +295,9 @@ int32_t main(int32_t argc, char **argv) {
       || (0 == commandlineArguments.count("out")) ) {
     std::cerr << argv[0] << " reencodes an existing recording file to "
       << "transcode non-SI units to SI-units for PEAK GPS." << std::endl;
-    std::cerr << "Usage:   " << argv[0] << " --in=<existing recording> "
-      << "--out=<output> [--verbose]" << std::endl;
-    std::cerr << "Example: " << argv[0] << " --in=myRec.rec --out=myNewRec.rec" 
+    std::cerr << "Usage:   " << argv[0] << " --in=<existing folder with recordings> "
+      << "--out=<output folder> [--verbose]" << std::endl;
+    std::cerr << "Example: " << argv[0] << " --in=in-rec --out=out-rec" 
       << std::endl;
     retCode = 1;
   } else {

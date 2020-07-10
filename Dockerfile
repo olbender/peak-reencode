@@ -20,6 +20,7 @@ RUN apk update && \
     apk --no-cache add \
         cmake \
         g++ \
+        linux-headers \
         make \
         upx
 ADD . /opt/sources
